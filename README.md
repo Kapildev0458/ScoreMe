@@ -18,6 +18,7 @@ Three business workflows ship as **pure YAML configuration** on the same engine:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design, components, data flow, consistency model, trade-offs, assumptions, scaling |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Configuration model reference: how to change rules and workflows |
 | [docs/DECISION_EXAMPLES.md](docs/DECISION_EXAMPLES.md) | 10 real decision explanations (input → rules → output → audit) |
+| [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) | Test report: 68 tests, all passing, 95% code coverage |
 
 ---
 
@@ -30,7 +31,7 @@ python -m venv .venv
 # Windows:  .venv\Scripts\activate        Linux/macOS:  source .venv/bin/activate
 pip install -r requirements.txt
 
-# run the tests (66 tests)
+# run the tests (68 tests)
 pytest
 
 # start the API  ->  Swagger UI at http://127.0.0.1:8000/docs
@@ -128,7 +129,7 @@ external system, that is one small class registered in `default_services()`.
 ## Tests
 
 ```bash
-pytest            # 66 tests, about 6 s
+pytest            # 68 tests, about 6 s
 pytest -v tests/test_idempotency.py
 ```
 
@@ -143,8 +144,11 @@ pytest -v tests/test_idempotency.py
 | Partial save failure (rollback + recovery) | `tests/test_persistence_failure.py` |
 | Explainability / audit completeness | `tests/test_audit_explain.py` |
 | Condition DSL unit tests | `tests/test_conditions.py` |
+| CLI interface | `tests/test_cli.py` |
 
-Regenerate the decision examples document from live runs with `python scripts/generate_examples.py`.
+Full results with per-test status and coverage: [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md)
+(regenerate with `python scripts/generate_test_report.py`). Regenerate the decision examples from live runs with
+`python scripts/generate_examples.py`.
 
 ---
 
