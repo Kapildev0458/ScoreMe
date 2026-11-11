@@ -1,0 +1,85 @@
+# Personal loan application approval.
+# Everything below is configuration: change thresholds, add rules or stages,
+# and bump `version` -- no code changes needed.
+workflow_id: loan_approval
+version: 1
+name: Personal Loan Approval
+description: Eligibility -> credit bureau lookup -> credit assessment -> amount-based routing.
+max_retry_attempts: 3          # re-drives allowed before RETRY_PENDING escalates to MANUAL_REVIEW
+
+input_schema:
+  applicant_id:   { type: string, min_length: 3 }
+  applicant_name: { type: string, min_length: 2 }
+  age:            { type: integer, min: 18, max: 100 }
+  pan:            { type: string, pattern: "^[A-Z]{5}[0-9]{4}[A-Z]$", description: Indian PAN }
+  monthly_income: { type: number, min: 0 }
+  loan_amount:    { type: number, min: 10000, max: 5000000 }
+  employment_type: { type: string, enum: [salaried, self_employed, unemployed] }
+  tenure_months:  { type: integer, min: 6, max: 84, required: false }
+
+start_stage: eligibility
+
+stages:
+  eligibility:
+    type: rules
+    description: Mandatory eligibility checks
+    rules:
+      - id: ELG-001
+        description: Applicant age must be between 21 and 60
+        condition: { field: age, op: between, value: [21, 60] }
+        on_fail: REJECTED
+      - id: ELG-002
+        description: Applicant must be employed
+        condition: { field: employment_type, op: in, value: [salaried, self_employed] }
+        on_fail: REJECTED
+      - id: ELG-003
+        description: Minimum monthly income of 25,000
+        condition: { field: monthly_income, op: gte, value: 25000 }
+        on_fail: REJECTED
+    on_pass: { next: credit_bureau_lookup }
+
+  credit_bureau_lookup:
+    type: enrich
+    description: Fetch credit report from external bureau (simulated dependency)
+    service: credit_bureau
+    inputs: { pan: pan }
+    output_key: credit
+    retry: { max_attempts: 3, base_delay_ms: 200, max_delay_ms: 2000, multiplier: 2 }
+    on_success: { next: credit_assessment }
+    on_failure:
+      decision: RETRY_PENDING
+      reason: Credit bureau unavailable; request parked for retry
+
+  credit_assessment:
+    type: rules
+    description: Threshold checks on bureau data
+    rules:
+      - id: CRD-001
+        description: Credit score must be at least 650
+        condition: { field: credit.score, op: gte, value: 650 }
+        on_fail: REJECTED
+      - id: CRD-002
+        description: No loan defaults in the last 24 months
+        condition: { field: credit.defaults_last_24m, op: eq, value: 0 }
+        on_fail: MANUAL_REVIEW
+        reason: Recent default found - underwriter must assess
+      - id: CRD-003
+        description: Loan amount must not exceed 20x monthly income
+        condition: { field: loan_amount, op: lte, ref: monthly_income, factor: 20 }
+        on_fail: REJECTED
+    on_pass: { next: risk_routing }
+
+  risk_routing:
+    type: branch
+    description: Conditional routing on amount and score band
+    branches:
+      - label: high_value_loan
+        when: { field: loan_amount, op: gt, value: 1000000 }
+        then: { decision: MANUAL_REVIEW, reason: Loans above 10 lakh need underwriter sign-off }
+      - label: borderline_credit
+        when:
+          all:
+            - { field: credit.score, op: lt, value: 700 }
+            - { field: credit.active_loans, op: gte, value: 2 }
+        then: { decision: MANUAL_REVIEW, reason: Borderline score with multiple active loans }
+    default: { decision: APPROVED, reason: All eligibility and credit checks passed }

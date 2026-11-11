@@ -1,0 +1,10 @@
+{
+  "claim_id": "CLM-1001",
+  "policy_id": "POL-1001",
+  "policy_status": "active",
+  "claim_type": "health",
+  "claim_amount": 50000,
+  "sum_insured": 500000,
+  "days_since_incident": 10,
+  "documents": ["claim_form", "id_proof", "hospital_bill"]
+}

@@ -1,0 +1,9 @@
+{
+  "applicant_id": "A-002",
+  "applicant_name": "Suresh Patil",
+  "age": 42,
+  "pan": "PQRSX5678K",
+  "monthly_income": 40000,
+  "loan_amount": 300000,
+  "employment_type": "self_employed"
+}

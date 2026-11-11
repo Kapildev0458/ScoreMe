@@ -1,0 +1,77 @@
+# Insurance claim processing.
+workflow_id: claim_processing
+version: 1
+name: Insurance Claim Processing
+description: Coverage checks -> document checks -> fraud screening -> payout routing.
+max_retry_attempts: 3
+
+input_schema:
+  claim_id:            { type: string, min_length: 3 }
+  policy_id:           { type: string, pattern: "^POL-[0-9]{4}$" }
+  policy_status:       { type: string, enum: [active, lapsed, cancelled] }
+  claim_type:          { type: string, enum: [health, motor, property] }
+  claim_amount:        { type: number, min: 1 }
+  sum_insured:         { type: number, min: 1 }
+  days_since_incident: { type: integer, min: 0 }
+  documents:           { type: array, description: "submitted document codes" }
+
+start_stage: coverage
+
+stages:
+  coverage:
+    type: rules
+    rules:
+      - id: COV-001
+        description: Policy must be active
+        condition: { field: policy_status, op: eq, value: active }
+        on_fail: REJECTED
+      - id: COV-002
+        description: Claim amount cannot exceed sum insured
+        condition: { field: claim_amount, op: lte, ref: sum_insured }
+        on_fail: REJECTED
+      - id: COV-003
+        description: Claim must be filed within 90 days of incident
+        condition: { field: days_since_incident, op: lte, value: 90 }
+        on_fail: REJECTED
+    on_pass: { next: documents }
+
+  documents:
+    type: rules
+    rules:
+      - id: DOC-001
+        description: Claim form is mandatory
+        condition: { field: documents, op: contains, value: claim_form }
+        on_fail: MANUAL_REVIEW
+        reason: Claim form missing - request from customer
+      - id: DOC-002
+        description: Identity proof is mandatory
+        condition: { field: documents, op: contains, value: id_proof }
+        on_fail: MANUAL_REVIEW
+        reason: ID proof missing - request from customer
+    on_pass: { next: fraud_screen }
+
+  fraud_screen:
+    type: enrich
+    service: fraud_check
+    inputs: { policy_id: policy_id, claim_amount: claim_amount, claim_type: claim_type }
+    output_key: fraud
+    retry: { max_attempts: 2, base_delay_ms: 100 }
+    on_success: { next: payout_routing }
+    on_failure:
+      # Fail-safe: never auto-approve money without a fraud check.
+      decision: MANUAL_REVIEW
+      reason: Fraud service unavailable - routed to manual review instead of auto-approval
+
+  payout_routing:
+    type: branch
+    branches:
+      - label: confirmed_fraud
+        when: { field: fraud.risk_score, op: gte, value: 95 }
+        then: { decision: REJECTED, reason: Fraud risk score above auto-reject threshold }
+      - label: suspicious
+        when: { field: fraud.risk_score, op: gte, value: 70 }
+        then: { decision: MANUAL_REVIEW, reason: Elevated fraud risk - send to investigation unit }
+      - label: large_claim
+        when: { field: claim_amount, op: gt, value: 200000 }
+        then: { decision: MANUAL_REVIEW, reason: Claims above 2 lakh need adjuster approval }
+    default: { decision: APPROVED, reason: Covered claim with complete documents and low fraud risk }
